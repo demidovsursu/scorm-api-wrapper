@@ -50,7 +50,7 @@ further modified by Andrey Demidov, 2025
 
     const pipwerks = {}; //pipwerks 'namespace' helps ensure no conflicts with possible other "SCORM" variables
     pipwerks.UTILS = {}; //For holding UTILS functions
-    pipwerks.debug = { isActive: true }; //Enable (true) or disable (false) for debug mode
+    pipwerks.debug = { isActive: false }; //Enable (true) or disable (false) for debug mode
 
     pipwerks.SCORM = { //Define the SCORM object
         version: null, //Store SCORM version.
@@ -132,6 +132,13 @@ further modified by Andrey Demidov, 2025
             scorm.version = "2004"; //Set version
             API = win.API_1484_11;
             scorm.API.Initialize=API.Initialize;
+            scorm.API.GetValue=API.GetValue;
+            scorm.API.SetValue=API.SetValue;
+            scorm.API.Commit=API.Commit;
+            scorm.API.Terminate=API.Terminate;
+            scorm.API.GetLastError=API.GetLastError;
+            scorm.API.GetErrorString=API.GetErrorString;
+            scorm.API.GetDiagnostic=API.GetDiagnostic;
             scorm.API.model={
                exit: "cmi.exit",
                exit_normal: "",
@@ -142,7 +149,7 @@ further modified by Andrey Demidov, 2025
                learner_language: "cmi.learner_preference.language",
                progress: "cmi.progress_measure",
                suspend_data: "cmi.suspend_data",
-               total_time: "cmi.total_time"
+               total_time: "cmi.total_time",
                session_time: "cmi.session_time",
                passing_score: "cmi.scaled_passing_score",
                raw_score: "cmi.score.raw",
@@ -154,6 +161,13 @@ further modified by Andrey Demidov, 2025
             scorm.version = "1.2"; //Set version
             API = win.API;
             scorm.API.Initialize=API.LMSInitialize;
+            scorm.API.GetValue=API.LMSGetValue;
+            scorm.API.SetValue=API.LMSSetValue;
+            scorm.API.Commit=API.LMSCommit;
+            scorm.API.Terminate=API.LMSFinish;
+            scorm.API.GetLastError=API.LMSGetLastError;
+            scorm.API.GetErrorString=API.LMSGetErrorString;
+            scorm.API.GetDiagnostic=API.LMSGetDiagnostic;
             scorm.API.model={
                exit: "cmi.core.exit",
                exit_normal: "logout",
@@ -165,7 +179,7 @@ further modified by Andrey Demidov, 2025
                progress: "",
                suspend_data: "cmi.suspend_data",
                total_time: "cmi.core.total_time",
-               session_time: "cmi.core.session_time"
+               session_time: "cmi.core.session_time",
                passing_score: "",
                raw_score: "cmi.core.score.raw",
                min_score: "cmi.core.score.min",
@@ -275,7 +289,7 @@ further modified by Andrey Demidov, 2025
 
         trace("connection.initialize called.");
 
-        scorm.data.time.total.startAt=(new Date()).getTime();
+        scorm.data.time.startAt=(new Date()).getTime();
 
         if (!scorm.connection.isActive) {
             let API = scorm.API.getHandle(),
@@ -290,30 +304,8 @@ further modified by Andrey Demidov, 2025
 
                     if (errorCode !== null && errorCode === 0) {
                         scorm.connection.isActive = true;
-
-                        switch (scorm.version) {
-                          case "1.2":
-                            scorm.API.GetValue=API.LMSGetValue;
-                            scorm.API.SetValue=API.LMSSetValue;
-                            scorm.API.Commit=API.LMSCommit;
-                            scorm.API.Terminate=API.LMSFinish;
-                            scorm.API.GetLastError=API.LMSGetLastError;
-                            scorm.API.GetErrorString=API.LMSGetErrorString;
-                            scorm.API.GetDiagnostic=API.LMSGetDiagnostic;
-                            break;
-                          case "2004":
-                            scorm.API.GetValue=API.GetValue;
-                            scorm.API.SetValue=API.SetValue;
-                            scorm.API.Commit=API.Commit;
-                            scorm.API.Terminate=API.Terminate;
-                            scorm.API.GetLastError=API.GetLastError;
-                            scorm.API.GetErrorString=API.GetErrorString;
-                            scorm.API.GetDiagnostic=API.GetDiagnostic;
-                            break;
-                        }
-                        if(document && document.body) {
-                          document.body.onbeforeunload=scorm.connection.terminate;
-                          document.body.onunload=scorm.connection.terminate;
+                        if(window.document && window.document.body) {
+                          window.document.body.onunload=window.document.body.onbeforeunload=function(){ pipwerks.SCORM.scorm.connection.terminate(); }
                         }
                         let model=scorm.API.model;
                         scorm.data.learner.id = scorm.data.get(model.learner_id);
@@ -396,7 +388,7 @@ further modified by Andrey Demidov, 2025
                     if(scorm.data.time.endAt==null) scorm.data.time.endAt=(new Date()).getTime();
                     scorm.data.set(model.session_time, pipwerks.UTILS.ms2SCORMTime(scorm.data.time.endAt - scorm.data.time.startAt));
 
-                    if (scorm.data.score.progress.measure<1.0) {
+                    if (scorm.data.progress.measure<1.0) {
                        success = scorm.data.set(model.exit, model.exit_suspend);
                     } else {
                        success = scorm.data.set(model.exit, model.exit_normal);
@@ -435,7 +427,8 @@ further modified by Andrey Demidov, 2025
 
     /* -------------------------------------------------------------------------
        pipwerks.SCORM.data.setscore(score)
-       Set score - send to LMS on terminate
+       Set score, call before setprogress
+       Score will sending to LMS on terminate
 
        Parameters: score (Number score.min...score.max)
        Returns:   Boolean
@@ -494,7 +487,7 @@ further modified by Andrey Demidov, 2025
        Requests information from the LMS.
 
        Parameter: parameter (string, name of the SCORM data model element)
-       Returns:   string (the value of the specified data model element)
+       Returns:   string or null on error
     ---------------------------------------------------------------------------- */
 
     pipwerks.SCORM.data.get = function(parameter) {
@@ -749,6 +742,7 @@ further modified by Andrey Demidov, 2025
     pipwerks.SCORM.save = pipwerks.SCORM.data.save;
     pipwerks.SCORM.quit = pipwerks.SCORM.connection.terminate;
     pipwerks.SCORM.setprogress = pipwerks.SCORM.data.setprogress;
+    pipwerks.SCORM.setscore = pipwerks.SCORM.data.setscore;
 
 
 
@@ -771,7 +765,7 @@ further modified by Andrey Demidov, 2025
       if(tm) {
         if(scorm.version=="2004") {
           let toMS=function(t, am, sfx){
-            let r=t.match(new Regex("([0-9]+)"+sfx));
+            let r=t.match(new RegExp("([0-9]+)"+sfx));
             if(r) {
               ms=(+r[1])*am;
             }
@@ -808,18 +802,17 @@ further modified by Andrey Demidov, 2025
       let toScormTime=function(am,sfx,pad=0){
         let v=Math.floor(ms/am);
         ms-=v*am;
-        if(v>0 || pad>0) ScormTime+=v.padStart(pad,"0")+sfx;
+        if(v>0 || pad>0) ScormTime+=v.toString().padStart(pad,"0")+sfx;
       }
       ms=Math.floor(ms / 10);
       if(scorm.version=="2004") {
-        const msperday=24*60*60*100;
-        toScormTime(ms,365.25*24*msperhour,"Y");
-        toScormTime(ms,365.25*2*msperhour,"M");
-        toScormTime(ms,24*msperhour,"D");
+        toScormTime(365.25*24*msperhour,"Y");
+        toScormTime(365.25*2*msperhour,"M");
+        toScormTime(24*msperhour,"D");
 
         if(ms>0) ScormTime+="T";
-        toScormTime(ms,msperhour,"H");
-        toScormTime(ms,6000,"M");
+        toScormTime(msperhour,"H");
+        toScormTime(6000,"M");
         if(ms>0) {
           if(ms%100==0)
              ScormTime+=ms/100+"S";
@@ -830,9 +823,9 @@ further modified by Andrey Demidov, 2025
         ScormTime="P"+ScormTime;
       }
       else {
-        toScormTime(ms,msperhour,":",4);
-        toScormTime(ms,6000,":",2);
-        ScormTime+=(ms/100).toFixed(2).padStart(5,"0");
+        toScormTime(msperhour,":",4);
+        toScormTime(6000,":",2);
+        ScormTime+=(ms/100).toFixed(2).toString().padStart(5,"0");
       }
       return ScormTime;
     }

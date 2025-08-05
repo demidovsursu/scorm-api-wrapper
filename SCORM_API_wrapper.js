@@ -74,9 +74,10 @@ further modified by Andrey Demidov, 2025
             completionStatus: null,
             exitStatus: null,
             learner: { id: null, name: null, language: null},
-            progress: { measure: 0, data: null, save: true },
+            progress: { measure: 0, data: null, save: true, passing: 1.0 },
             score: { min: 0, max: 100, raw: null, scaled: 0.0, passing: 0.75 },
             time: { total: 0.0, startAt: null, endAt: null },
+            objectives: [ {id:'primary', progress: {measure:0, passing: 1.0}, status: '', score: {min:0, max: 100, raw: null, scaled: 0.0, passing: 0.75}, save: false} ],
 
         }, //Create data child object
         debug: {} //Create debug child object
@@ -151,7 +152,7 @@ further modified by Andrey Demidov, 2025
                suspend_data: "cmi.suspend_data",
                total_time: "cmi.total_time",
                session_time: "cmi.session_time",
-               passing_score: "cmi.scaled_passing_score",
+               passing_status: "cmi.scaled_passing_score",
                raw_score: "cmi.score.raw",
                min_score: "cmi.score.min",
                max_score: "cmi.score.max",
@@ -180,7 +181,7 @@ further modified by Andrey Demidov, 2025
                suspend_data: "cmi.suspend_data",
                total_time: "cmi.core.total_time",
                session_time: "cmi.core.session_time",
-               passing_score: "",
+               passing_status: "",
                raw_score: "cmi.core.score.raw",
                min_score: "cmi.core.score.min",
                max_score: "cmi.core.score.max",
@@ -311,9 +312,21 @@ further modified by Andrey Demidov, 2025
                         scorm.data.learner.id = scorm.data.get(model.learner_id);
                         scorm.data.learner.name = scorm.data.get(model.learner_name);
                         scorm.data.learner.language = scorm.data.get(model.learner_language);
-                        let ss=scorm.data.get(model.passing_score);
-                        if(ss) scorm.data.score.passing= +ss;
-
+                        let ss=scorm.data.get(model.passing_status); 
+                        if(ss) { 
+                          scorm.data.progress.passing= +ss;
+                        }
+                        let objCount=scorm.data.get("cmi.objectives._count");
+                        if(objCount!=null && objCount>0) {
+                           for(let obj=0; obj<objCount; ++obj) {
+                             let id=scorm.data.get("cmi.objectives."+obj.toString()+".id");
+                             if(obj<scorm.data.objectives.length) {
+                               scorm.data.objectives[obj].id=id;
+                             } else {
+                               scorm.data.objectives.push({id: id, progress: { measure: 0, passing: 1.0}, status: '', score: {min:0, max: 100, raw: null, scaled: 0.0, passing: 0.75}, save: false});
+                             }
+                           }
+                        }
                         if (scorm.handleCompletionStatus) {
                             completionStatus = scorm.data.get(model.status);
 
@@ -393,10 +406,9 @@ further modified by Andrey Demidov, 2025
                     } else {
                        success = scorm.data.set(model.exit, model.exit_normal);
                     }
-                    if(scorm.version=="2004") scorm.data.set("adl.nav.request","exitAll");
+                    if(scorm.version=="2004") scorm.data.set("adl.nav.request",(scorm.data.progress.measure<1.0)?"suspendAll":"exitAll");
                 }
-
-                success = scorm.save();
+                if(scorm.version!="2004") success = scorm.save();
 
                 if (success) {
                     success = makeBoolean(scorm.API.Terminate.call(API,""));
@@ -443,6 +455,34 @@ further modified by Andrey Demidov, 2025
 
 
     /* -------------------------------------------------------------------------
+       pipwerks.SCORM.data.setobjetive(id, measure, score=null)
+       Set progress and score of the objective with id or #
+
+       Parameters: id (string or number)
+                   measure (number 0..1)
+                   score (Number score.min...score.max)
+       Returns:   Boolean
+    ---------------------------------------------------------------------------- */
+    pipwerks.SCORM.data.setobjective=function(id, measure, score=null) {
+      let scorm = pipwerks.SCORM, n=-1;
+      if(typeof(id)=="string") {
+        for(let obj=0;obj<scorm.data.objectives.length; ++obj) {
+          if(scorm.data.objectives[obj].id==id) { n=obj; break; }
+        }
+      } else {
+        n=id;
+      }
+      if(n<=0 || n>=scorm.data.objectives.length) return false;
+      let objn=scorm.data.objectives[n];
+      objn.progress.measure=measure;
+      if(score!=null) {
+        objn.score.raw=score;
+        objn.score.scaled=(score-objn.score.min)/(obj.score.max-obj.score.min);
+      }
+      objn.save=true;
+    }
+
+    /* -------------------------------------------------------------------------
        pipwerks.SCORM.data.setprogress(measure, data=null)
        Send progress measure to LMS
 
@@ -459,10 +499,44 @@ further modified by Andrey Demidov, 2025
             model=scorm.API.model;
 
         if (scorm.connection.isActive) {
-          if(measure>=1.0) {
+          // save objectives progress and score
+          for(let obj=0;obj<scorm.data.objectives.length; ++obj) {
+            let objn=scorm.data.objectives[obj];
+            if(objn.save) {
+              let status="completed", objp="cmi.objectives."+obj.toString();
+                
+              if(objn.progress.measure>=objn.progress.passing) {
+                if(objn.score.raw!=null) {
+                  if(objn.score.scaled>=objn.score.passing)
+                    status="passed";
+                  else
+                    status="failed";
+                  scorm.data.set(objp+".score.min", objn.score.min.toString());
+                  scorm.data.set(objp+".score.max", objn.score.max.toString());
+                  scorm.data.set(objp+".score.raw", objn.score.raw.toString());
+                  if(scorm.version=="2004") {
+                    scorm.data.set(objp+".score.scaled", objn.score.scaled.toFixed(2).toString());
+                    scorm.data.set(objp+".success_status", status);
+                  }
+                }
+                if(scorm.version=="2004") {
+                  scorm.data.set(objp+".completion_status", "completed");
+                } else {
+                  scorm.data.set(objp+".status", status);
+                }
+              } else {
+                scorm.data.set(objp+(scorm.version=="2004"?".completion_status":".status"), "incomplete");
+              }
+              if(scorm.version=="2004") {
+                scorm.data.set(objp+".progress_measure", objn.progress.measure.toFixed(2).toString());
+              }
+              objn.save=false;
+            }
+          }
+          if(measure>=scorm.data.progress.passing) {
              let status="completed";
              if(scorm.data.score.raw!=null) {
-               if(scorm.data.score.scaled>=scorm.data.score.passed)
+               if(scorm.data.score.scaled>=scorm.data.score.passing)
                  status="passed";
                else
                  status="failed";
@@ -743,6 +817,7 @@ further modified by Andrey Demidov, 2025
     pipwerks.SCORM.quit = pipwerks.SCORM.connection.terminate;
     pipwerks.SCORM.setprogress = pipwerks.SCORM.data.setprogress;
     pipwerks.SCORM.setscore = pipwerks.SCORM.data.setscore;
+    pipwerks.SCORM.setobjective = pipwerks.SCORM.data.setobjective;
 
 
 

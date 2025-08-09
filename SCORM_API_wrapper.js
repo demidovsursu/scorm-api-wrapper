@@ -74,7 +74,7 @@ further modified by Andrey Demidov, 2025
             completionStatus: null,
             exitStatus: null,
             learner: { id: null, name: null, language: null},
-            progress: { measure: 0, data: null, save: true, passing: 1.0 },
+            progress: { measure: 0, data: null, location: null, save: true, passing: 1.0 },
             score: { min: 0, max: 100, raw: null, scaled: 0.0, passing: 0.75 },
             time: { total: 0.0, startAt: null, endAt: null },
             objectives: [ {id:'primary', progress: {measure:0, passing: 1.0}, status: '', score: {min:0, max: 100, raw: null, scaled: 0.0, passing: 0.75}, save: false} ],
@@ -140,6 +140,7 @@ further modified by Andrey Demidov, 2025
             scorm.API.GetLastError=API.GetLastError;
             scorm.API.GetErrorString=API.GetErrorString;
             scorm.API.GetDiagnostic=API.GetDiagnostic;
+            scorm.data.progress.save=false;
             scorm.API.model={
                exit: "cmi.exit",
                exit_normal: "",
@@ -157,6 +158,7 @@ further modified by Andrey Demidov, 2025
                min_score: "cmi.score.min",
                max_score: "cmi.score.max",
                scaled_score: "cmi.score.scaled",
+               location: "cmi.location"
             };
         } else if ((scorm.version=="1.2" || !scorm.version) && win.API) { //SCORM 1.2-specific API
             scorm.version = "1.2"; //Set version
@@ -186,6 +188,7 @@ further modified by Andrey Demidov, 2025
                min_score: "cmi.core.score.min",
                max_score: "cmi.core.score.max",
                scaled_score: "",
+               location: "cmi.core.lesson_location"
             };
         }
         else if(!scorm.version) {
@@ -332,10 +335,11 @@ further modified by Andrey Demidov, 2025
 
                             if (completionStatus=="not attempted" || completionStatus=="unknown") {
                                scorm.data.set(model.status, "incomplete");
-                               scorm.save();
+                               if(scorm.data.progress.save) scorm.save();
                             }
                             else {
                                scorm.data.progress.data = scorm.data.get(model.suspend_data);
+                               scorm.data.progress.location = scorm.data.get(model.location);
                                scorm.data.time.total = pipwerks.UTILS.SCORMTime2ms(scorm.data.get(model.total_time));
                             }
                         }
@@ -483,15 +487,16 @@ further modified by Andrey Demidov, 2025
     }
 
     /* -------------------------------------------------------------------------
-       pipwerks.SCORM.data.setprogress(measure, data=null)
+       pipwerks.SCORM.data.setprogress(measure, data=null, location=null)
        Send progress measure to LMS
 
        Parameters: measure (number 0..1)
                    data (string - any data to restore the savepoint in content)
+                   location (string - any data to restore the savepoint in content)
        Returns:   Boolean
     ---------------------------------------------------------------------------- */
 
-    pipwerks.SCORM.data.setprogress=function(measure, data=null) {
+    pipwerks.SCORM.data.setprogress=function(measure, data=null, location=null) {
         let success = false,
             scorm = pipwerks.SCORM,
             trace = pipwerks.UTILS.trace,
@@ -548,8 +553,12 @@ further modified by Andrey Demidov, 2025
           scorm.data.progress.measure=measure;
           scorm.data.set(model.progress, measure.toFixed(2).toString());
           scorm.data.progress.data=data;
+          scorm.data.progress.location=location;
           if(data!=null) {
             scorm.data.set(model.suspend_data, data);
+          }
+          if(location!=null) {
+            scorm.data.set(model.location, location);
           }
           if(scorm.data.progress.save) scorm.save();
         }
@@ -639,7 +648,10 @@ further modified by Andrey Demidov, 2025
 
             if (API) {
                 if(parameter==model.status && scorm.version=="2004") {
-                  success = makeBoolean(scorm.API.SetValue.call(API,"cmi.success_status", (value=="passed" || value=="failed")?value:"unknown"));
+                  success=true;
+                  if(value=="passed" || value=="failed") {
+                    success = makeBoolean(scorm.API.SetValue.call(API,"cmi.success_status", value));
+                  }
                   if(success) 
                     success = makeBoolean(scorm.API.SetValue.call(API,parameter, (value=="passed" || value=="failed")?"completed":value));
                 } else {

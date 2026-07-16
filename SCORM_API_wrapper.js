@@ -70,6 +70,7 @@ further modified by Andrey Demidov, 2025
             model: null
         }, //Create API child object
         connection: { isActive: false }, //Create connection child object
+        mode: 'normal',
         data: {
             completionStatus: null,
             exitStatus: null,
@@ -146,6 +147,7 @@ further modified by Andrey Demidov, 2025
                exit_normal: "",
                exit_suspend: "suspend",
                status: "cmi.completion_status",
+               mode: "cmi.mode",
                learner_id: "cmi.learner_id",
                learner_name: "cmi.learner_name",
                learner_language: "cmi.learner_preference.language",
@@ -176,6 +178,7 @@ further modified by Andrey Demidov, 2025
                exit_normal: "logout",
                exit_suspend: "suspend",
                status: "cmi.core.lesson_status",
+               mode: "cmi.core.lesson_mode",
                learner_id: "cmi.core.student_id",
                learner_name: "cmi.core.student_name",
                learner_language: "cmi.student_preference.language",
@@ -309,9 +312,10 @@ further modified by Andrey Demidov, 2025
                     if (errorCode !== null && errorCode === 0) {
                         scorm.connection.isActive = true;
                         if(window.document && window.document.body) {
-                          window.document.body.onunload=window.document.body.onbeforeunload=function(){ pipwerks.SCORM.scorm.connection.terminate(); }
+                          window.document.body.onunload=window.document.body.onbeforeunload=function(){ pipwerks.SCORM.connection.terminate(); }
                         }
                         let model=scorm.API.model;
+                        scorm.mode = scorm.data.get(model.mode);
                         scorm.data.learner.id = scorm.data.get(model.learner_id);
                         scorm.data.learner.name = scorm.data.get(model.learner_name);
                         scorm.data.learner.language = scorm.data.get(model.learner_language);
@@ -386,12 +390,13 @@ further modified by Andrey Demidov, 2025
             debug = scorm.debug,
             traceMsgPrefix = "SCORM.connection.terminate ",
             model=scorm.API.model;
-
         if (scorm.connection.isActive) {
             let API = scorm.API.getHandle(),
                 errorCode = 0;
 
             if (API) {
+                if(scorm.mode=='normal') {
+
                 if (scorm.handleExitMode && !exitStatus) {
 
                     scorm.data.progress.save=false;
@@ -413,6 +418,7 @@ further modified by Andrey Demidov, 2025
                     if(scorm.version=="2004") scorm.data.set("adl.nav.request",(scorm.data.progress.measure<1.0)?"suspendAll":"exitAll");
                 }
                 if(scorm.version!="2004") success = scorm.save();
+                } else success=true;
 
                 if (success) {
                     success = makeBoolean(scorm.API.Terminate.call(API,""));
@@ -640,7 +646,7 @@ further modified by Andrey Demidov, 2025
             traceMsgPrefix = "SCORM.data.set('" + parameter + "') ",
             model=scorm.API.model;
 
-        if(parameter=="") return true;
+        if(parameter=="" || scorm.mode!='normal') return true;
         if (scorm.connection.isActive) {
 
             let API = scorm.API.getHandle(),
@@ -688,14 +694,14 @@ further modified by Andrey Demidov, 2025
     ---------------------------------------------------------------------------- */
 
     pipwerks.SCORM.data.save = function() {
-
+       
         let success = false,
             scorm = pipwerks.SCORM,
             trace = pipwerks.UTILS.trace,
             makeBoolean = pipwerks.UTILS.StringToBoolean,
             traceMsgPrefix = "SCORM.data.save failed";
 
-
+        if(scorm.mode!='normal') return true;
         if (scorm.connection.isActive) {
 
             const API = scorm.API.getHandle();
